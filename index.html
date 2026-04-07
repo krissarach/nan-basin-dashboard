@@ -410,43 +410,25 @@ footer a{color:var(--blue);text-decoration:none;}
 
     <!-- RADAR -->
     <div class="card">
-      <div class="card-head" style="gap:.5rem">
+      <div class="card-head">
         <span class="card-title">เรดาร์ตรวจอากาศ</span>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <div class="radar-tabs">
-            <button class="radar-tab active" onclick="switchRadar('latest',this)">ล่าสุด</button>
-            <button class="radar-tab" onclick="switchRadar('loop',this)">Loop</button>
-          </div>
-          <button class="radar-refresh-btn" onclick="refreshRadar()" title="รีเฟรชเรดาร์">
-            <span id="radar-spin" style="display:none" class="radar-spinner"></span>
-            <span id="radar-refresh-icon">⟳</span>
-          </button>
+        <span style="font-size:11px;color:var(--sub)">CRI เชียงราย</span>
+      </div>
+      <div style="padding:.75rem .75rem 0">
+        <div style="border-radius:12px;overflow:hidden;height:300px;background:#000;position:relative">
+          <iframe
+            src="https://www.radartambon.com/radar/cri"
+            style="width:100%;height:380px;border:none;margin-top:-40px;pointer-events:none"
+            scrolling="no"
+            loading="lazy"
+            title="เรดาร์เชียงราย"
+          ></iframe>
         </div>
       </div>
-      <div class="card-body" style="padding:1rem">
-        <div class="radar-img-wrap" id="radar-wrap">
-          <img
-            id="radar-img"
-            class="radar-img"
-            src=""
-            alt="เรดาร์เชียงราย"
-            onload="onRadarLoad()"
-            onerror="onRadarError()"
-          />
-          <div id="radar-loading" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--sub);font-size:13px">
-            <div class="radar-spinner" style="width:28px;height:28px;border-width:3px"></div>
-            กำลังโหลดเรดาร์...
-          </div>
-          <div id="radar-error" class="radar-err" style="display:none;position:absolute;inset:0;background:var(--card)">
-            ⚠️ โหลดภาพไม่ได้<br>
-            <a href="https://radartambon.com/chaingrai.php" target="_blank" style="color:var(--blue);font-size:12px">เปิดเว็บต้นทาง</a>
-          </div>
-          <span class="radar-time" id="radar-time">—</span>
-        </div>
-        <div style="font-size:10px;color:var(--sub);margin-top:8px;text-align:center">
-          เรดาร์ CRI เชียงราย 240 กม. ·
-          <a href="https://weather.tmd.go.th" target="_blank" style="color:var(--blue);text-decoration:none">กรมอุตุนิยมวิทยา</a>
-        </div>
+      <div style="font-size:10px;color:var(--sub);padding:8px 12px;text-align:center">
+        ข้อมูลจาก:
+        <a href="https://www.radartambon.com/radar/cri" target="_blank" style="color:var(--blue);text-decoration:none">radartambon.com</a>
+        · กรมอุตุนิยมวิทยา
       </div>
     </div>
 
@@ -507,7 +489,7 @@ const STN_COORDS = {
   n64: { lat: 18.7750, lng: 100.7700, name: 'N.64 บ้านผาขวาง' },
   n1:  { lat: 18.7833, lng: 100.7833, name: 'N.1 สะพานพัฒนา'  }
 };
-const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast?latitude=18.78&longitude=100.78&current=temperature_2m,precipitation,windspeed_10m,weathercode,relativehumidity_2m&timezone=Asia%2FBangkok';
+const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast?latitude=18.78&longitude=100.78&current=temperature_2m,precipitation,wind_speed_10m,weather_code,relative_humidity_2m&timezone=Asia%2FBangkok';
 const REFRESH_SEC = 30 * 60;
 
 let mainChart = null, countdownTimer = null, mapInstance = null;
@@ -538,28 +520,46 @@ function parseTable(html) {
 
 // ==================== FETCH ====================
 async function tryFetch() {
+  // corsproxy.io คืน HTML โดยตรง (ไม่ wrap JSON)
+  // allorigins.win คืน { contents: "..." }
   const attempts = [
-    { url: URLS.primary, label: 'hydro1.ddns.net' },
-    { url: URLS.backup,  label: 'hydro-1.net' },
-    { url: URLS.backup,  label: 'hydro-1.net (POST)', method:'POST',
-      body:'menu=1&stn_group=4&submit=%E0%B8%95%E0%B8%81%E0%B8%A5%E0%B8%87' }
+    { url: URLS.primary, label: 'hydro1.ddns.net',     proxy: 'corsproxy', direct: true  },
+    { url: URLS.backup,  label: 'hydro-1.net',          proxy: 'corsproxy', direct: true  },
+    { url: URLS.primary, label: 'hydro1.ddns.net (AO)', proxy: 'allorigins', direct: false },
+    { url: URLS.backup,  label: 'hydro-1.net (AO)',     proxy: 'allorigins', direct: false },
+    { url: URLS.backup,  label: 'hydro-1.net (POST)',   proxy: 'corsproxy', direct: true,
+      method:'POST', body:'menu=1&stn_group=4&submit=%E0%B8%95%E0%B8%81%E0%B8%A5%E0%B8%87' },
   ];
-  for (const a of attempts) for (const px of PROXIES) {
+
+  for (const a of attempts) {
     try {
+      const targetUrl = a.url;
+      const proxyUrl = a.proxy === 'corsproxy'
+        ? `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`
+        : `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+
       const opts = { signal: AbortSignal.timeout(12000) };
       if (a.method === 'POST') {
         opts.method = 'POST';
-        opts.headers = { 'Content-Type':'application/x-www-form-urlencoded' };
+        opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
         opts.body = a.body;
       }
-      const res = await fetch(px(a.url), opts);
+
+      const res = await fetch(proxyUrl, opts);
       if (!res.ok) continue;
-      const json = await res.json();
-      const html = json.contents || json;
+
+      let html;
+      if (a.direct) {
+        html = await res.text();
+      } else {
+        const json = await res.json();
+        html = json.contents || '';
+      }
+
       if (typeof html !== 'string' || html.length < 300) continue;
       const data = parseTable(html);
       if (data) return { data, source: a.label };
-    } catch(e) {}
+    } catch(e) { /* ลองต่อ */ }
   }
   return null;
 }
@@ -582,22 +582,34 @@ function wxIcon(c){ return WX[c]||'🌡'; }
 function wxDesc(c){ return c===0?'ท้องฟ้าแจ่มใส':c<=3?'มีเมฆ':c<=48?'หมอก':c<=55?'ฝนปรอย':c<=65?'ฝน':c<=82?'ฝนตก':'พายุฝน'; }
 async function fetchWeather() {
   try {
-    const res = await fetch(WEATHER_URL,{ signal:AbortSignal.timeout(8000) });
-    if (!res.ok) return;
-    const j = await res.json(), c = j.current;
+    const res = await fetch(WEATHER_URL, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    const c = j.current;
+    // Open-Meteo v1 field names (snake_case ใหม่)
+    const code  = c.weather_code ?? c.weathercode ?? 0;
+    const temp  = c.temperature_2m ?? '--';
+    const hum   = c.relative_humidity_2m ?? c.relativehumidity_2m ?? '--';
+    const prec  = c.precipitation ?? '--';
+    const wind  = c.wind_speed_10m ?? c.windspeed_10m ?? '--';
     const items = [
-      { icon:wxIcon(c.weathercode), lbl:wxDesc(c.weathercode), val:'' },
-      { icon:'🌡', lbl:'อุณหภูมิ',  val:c.temperature_2m+'°C' },
-      { icon:'💧', lbl:'ความชื้น',   val:c.relativehumidity_2m+'%' },
-      { icon:'🌧', lbl:'ฝน',         val:c.precipitation+' มม.' },
-      { icon:'💨', lbl:'ลม',         val:c.windspeed_10m+' กม./ชม.' },
+      { icon: wxIcon(code), lbl: wxDesc(code), val: '' },
+      { icon: '🌡', lbl: 'อุณหภูมิ',   val: temp + '°C' },
+      { icon: '💧', lbl: 'ความชื้น',    val: hum + '%' },
+      { icon: '🌧', lbl: 'ฝน (ชม.)',   val: prec + ' มม.' },
+      { icon: '💨', lbl: 'ความเร็วลม', val: wind + ' กม./ชม.' },
     ];
     document.getElementById('wx-grid').innerHTML = items.map(i =>
       `<div class="wx-box"><div class="wx-icon">${i.icon}</div><div class="wx-lbl">${i.lbl}</div><div class="wx-val">${i.val}</div></div>`
     ).join('');
-    const t = new Date(c.time);
-    document.getElementById('wx-time').textContent = t.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})+' น.';
-  } catch(e) {}
+    document.getElementById('wx-time').textContent =
+      'อัปเดต ' + new Date().toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' }) + ' น.';
+  } catch(e) {
+    document.getElementById('wx-grid').innerHTML =
+      `<div style="grid-column:1/-1;font-size:12px;color:var(--sub);padding:.5rem;text-align:center">
+        ดึงข้อมูลอากาศไม่ได้ — <a href="https://open-meteo.com" target="_blank" style="color:var(--blue)">open-meteo.com</a>
+      </div>`;
+  }
 }
 
 // ==================== STATUS ====================
@@ -882,74 +894,12 @@ async function fetchAllData() {
   btn.disabled = false;
 }
 
-// ==================== RADAR ====================
-const RADAR_URLS = {
-  latest: 'https://weather.tmd.go.th/cri/cri240_latest.png',
-  loop:   'https://weather.tmd.go.th/cri/cri240_loop.gif'
-};
-let radarMode = 'latest';
-let radarTimer = null;
-
-function switchRadar(mode, btn) {
-  radarMode = mode;
-  document.querySelectorAll('.radar-tab').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  refreshRadar();
-}
-
-function refreshRadar() {
-  const img    = document.getElementById('radar-img');
-  const spin   = document.getElementById('radar-spin');
-  const icon   = document.getElementById('radar-refresh-icon');
-  const loading = document.getElementById('radar-loading');
-  const errEl  = document.getElementById('radar-error');
-
-  spin.style.display = 'block';
-  icon.style.display = 'none';
-  loading.style.display = 'flex';
-  errEl.style.display = 'none';
-  img.style.opacity = '0';
-
-  // cache-bust ป้องกัน browser จำภาพเก่า
-  img.src = RADAR_URLS[radarMode] + '?v=' + Date.now();
-}
-
-function onRadarLoad() {
-  const spin   = document.getElementById('radar-spin');
-  const icon   = document.getElementById('radar-refresh-icon');
-  const loading = document.getElementById('radar-loading');
-  const img    = document.getElementById('radar-img');
-
-  loading.style.display = 'none';
-  spin.style.display = 'none';
-  icon.style.display = 'inline';
-  img.style.opacity = '1';
-  img.style.transition = 'opacity .4s';
-
-  const now = new Date().toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' });
-  document.getElementById('radar-time').textContent = 'อัปเดต ' + now + ' น.';
-}
-
-function onRadarError() {
-  document.getElementById('radar-loading').style.display = 'none';
-  document.getElementById('radar-error').style.display   = 'flex';
-  document.getElementById('radar-spin').style.display    = 'none';
-  document.getElementById('radar-refresh-icon').style.display = 'inline';
-}
-
-function startRadarAutoRefresh() {
-  if (radarTimer) clearInterval(radarTimer);
-  radarTimer = setInterval(refreshRadar, 10 * 60 * 1000); // ทุก 10 นาที
-}
-
 window.addEventListener('load', () => {
   if (localStorage.getItem('theme') === 'dark') {
     document.documentElement.classList.add('dark');
   }
   initMap();
   fetchAllData();
-  refreshRadar();
-  startRadarAutoRefresh();
 });
 
 function toggleTheme() {
